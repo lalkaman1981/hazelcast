@@ -241,15 +241,15 @@ def queue_demo():
 
 
 if __name__ == "__main__":
-    # print("=== populate map ===")
-    # task_populate_map(mode="none")
+    print("=== populate map ===")
+    task_populate_map(mode="none")
 
-    # client = new_client()
-    # print_cluster_info(client)
-    # client.shutdown()
+    client = new_client()
+    print_cluster_info(client)
+    client.shutdown()
 
-    # print("\n=== measure concurrency ===")
-    # measure_concurrency()
+    print("\n=== measure concurrency ===")
+    measure_concurrency()
 
     print("\n=== queue demo ===")
     queue_demo()
