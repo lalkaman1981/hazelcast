@@ -641,38 +641,3 @@ All responses are JSON format
 | Scalability | Limited | **Horizontally scalable** |
 | Cluster Support | N/A | **Hazelcast 3-node cluster** |
 
-## Key Learnings
-
-1. **Distributed Systems Design:** Using Hazelcast for transparent data distribution
-2. **Fault Tolerance:** Multi-instance services with load balancing
-3. **Persistent Storage:** PostgreSQL for ACID-compliant data
-4. **Containerization:** Docker Compose for orchestration
-5. **gRPC Communication:** Efficient inter-service communication
-6. **Data Replication:** Automatic backup across cluster nodes
-
-## Future Enhancements
-
-- [ ] Add service discovery (Consul, Eureka)
-- [ ] Implement circuit breaker pattern
-- [ ] Add monitoring with Prometheus/Grafana
-- [ ] Implement message queuing (RabbitMQ)
-- [ ] Add authentication/authorization
-- [ ] Implement API rate limiting
-- [ ] Add request tracing (Jaeger)
-- [ ] Kubernetes deployment configuration
-
-## References
-
-- [Hazelcast Documentation](https://hazelcast.com/documentation/)
-- [gRPC Documentation](https://grpc.io/docs/)
-- [Docker Compose Reference](https://docs.docker.com/compose/compose-file/)
-- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
-- [Flask Documentation](https://flask.palletsprojects.com/)
-
-## License
-
-Educational project for APZ course (Assignment 3)
-
-## Author
-
-Created as part of Lab 3 - Microservices with Hazelcast Distributed Map
