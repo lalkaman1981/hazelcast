@@ -1,0 +1,102 @@
+version: '3.8'
+
+services:
+  hazelcast1:
+    image: hazelcast/hazelcast:5.3
+    ports:
+      - "5701:5701"
+    environment:
+      - HZ_CLUSTERNAME=dev
+    networks:
+      - app-network
+
+  hazelcast2:
+    image: hazelcast/hazelcast:5.3
+    ports:
+      - "5702:5701"
+    environment:
+      - HZ_CLUSTERNAME=dev
+    networks:
+      - app-network
+
+  hazelcast3:
+    image: hazelcast/hazelcast:5.3
+    ports:
+      - "5703:5701"
+    environment:
+      - HZ_CLUSTERNAME=dev
+    networks:
+      - app-network
+
+  postgres:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: counterdb
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    networks:
+      - app-network
+
+  logging1:
+    build: ./logging-service
+    ports:
+      - "50051:50051"
+    command: ["python", "server.py", "50051"]
+    depends_on:
+      - hazelcast1
+      - hazelcast2
+      - hazelcast3
+    networks:
+      - app-network
+
+  logging2:
+    build: ./logging-service
+    ports:
+      - "50052:50052"
+    command: ["python", "server.py", "50052"]
+    depends_on:
+      - hazelcast1
+      - hazelcast2
+      - hazelcast3
+    networks:
+      - app-network
+
+  logging3:
+    build: ./logging-service
+    ports:
+      - "50053:50053"
+    command: ["python", "server.py", "50053"]
+    depends_on:
+      - hazelcast1
+      - hazelcast2
+      - hazelcast3
+    networks:
+      - app-network
+
+  counter:
+    build: ./counter-service
+    ports:
+      - "50054:50052"
+    command: ["python", "server.py", "50052"]
+    depends_on:
+      - postgres
+    networks:
+      - app-network
+
+  facade:
+    build: ./facade-service
+    ports:
+      - "5000:5000"
+    depends_on:
+      - logging1
+      - logging2
+      - logging3
+      - counter
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge

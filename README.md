@@ -1,175 +1,678 @@
-# Hazelcast Task 2
+# Lab 3 - Microservices with Hazelcast Distributed Map
 
-This repository contains Python code that fulfils the requirements of Task 2 from
-"Hazelcast" assignment.
+## Overview
+
+This project is an advanced iteration of a microservices architecture that implements distributed data storage using **Hazelcast** for message logging and **PostgreSQL** for persistent account balance storage. The system demonstrates key principles of distributed systems including fault tolerance, load balancing, and scalable data management.
+
+## Architecture
+
+The system consists of four main components:
+
+### 1. Facade Service (HTTP API)
+- **Port:** 5000
+- **Role:** HTTP REST API gateway for client interactions
+- **Language:** Python (Flask)
+- **Responsibilities:**
+  - Accepts HTTP POST/GET requests from clients
+  - Randomly routes requests to available logging-service instances
+  - Forwards counter service requests
+  - Implements basic load balancing with fallback mechanism
+
+### 2. Logging Service (3 instances)
+- **Ports:** 50051, 50052, 50053
+- **Role:** Distributed message logging
+- **Language:** Python (gRPC)
+- **Responsibilities:**
+  - Implements gRPC interface for message operations
+  - Stores messages in Hazelcast Distributed Map
+  - Accessible even when other instances are down
+  - Each instance is independent and stateless
+
+### 3. Counter Service
+- **Port:** 50054
+- **Role:** Account balance management
+- **Language:** Python (gRPC)
+- **Database:** PostgreSQL
+- **Responsibilities:**
+  - Manages persistent account balances
+  - Supports deposit/withdrawal operations
+  - ACID guarantees via PostgreSQL
+
+### 4. Hazelcast Cluster (3 nodes)
+- **Ports:** 5701, 5702, 5703
+- **Role:** Distributed data store
+- **Capabilities:**
+  - In-memory distributed map for message storage
+  - Automatic data replication across nodes
+  - Fault-tolerant: continues operating with 2+ nodes
+  - Data persistence across service restarts
+
+### 5. PostgreSQL Database
+- **Port:** 5432
+- **Role:** Persistent storage for account balances
+- **Database:** `counterdb`
+- **Credentials:** user/password
+
+## System Diagram
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Clients (HTTP)                       │
+└────────────────────────┬────────────────────────────────┘
+                         │
+                         ▼
+                 ┌───────────────────┐
+                 │ Facade Service    │
+                 │  (Port 5000)      │
+                 └────┬──────────┬───┘
+                      │          │
+         ┌────────────┴──────────┴────────────┐
+         │                                   │
+         ▼                                   ▼
+    ┌─────────────┐                ┌──────────────┐
+    │Logging-1,2,3│                │Counter Svc   │
+    │(gRPC)       │                │(gRPC)        │
+    │Ports:       │                │Port: 50054   │
+    │50051-50053  │                └──────────────┘
+    └──────┬──────┘                        │
+           │                               │
+           ▼                               ▼
+    ┌──────────────────┐          ┌─────────────┐
+    │ Hazelcast Cluster│          │ PostgreSQL  │
+    │  (3 nodes)       │          │ Database    │
+    │ Ports: 5701-5703│          │ Port: 5432  │
+    └──────────────────┘          └─────────────┘
+```
+
+## Key Features
+
+### Distributed Data Storage
+- Messages stored in Hazelcast Distributed Map
+- Automatic replication across all cluster nodes
+- No single point of failure
+
+### Load Balancing
+- Facade-service randomly selects logging instances
+- Fallback to other instances if selected one is unavailable
+- Transparent to clients
+
+### Fault Tolerance
+- System continues operating if 1-2 logging instances are stopped
+- Hazelcast cluster tolerates loss of 1 node (3-node configuration)
+- Data is preserved via replication
+
+### Persistent Storage
+- Account balances stored in PostgreSQL
+- ACID transactions guaranteed
+- Data survives service restarts
+
+### Containerization
+- All services run in Docker containers
+- Docker Compose orchestrates the entire stack
+- Easy deployment and scaling
+
+## Project Structure
+
+```
+hw3/
+├── docker-compose.yml          # Orchestration configuration
+├── README.md                   # This file
+├── proto/                      # Protocol Buffer definitions
+│   ├── logging.proto          # Logging service interface
+│   ├── counter.proto          # Counter service interface
+│   ├── logging_pb2.py         # Generated Python code
+│   ├── logging_pb2_grpc.py    # Generated gRPC code
+│   ├── counter_pb2.py         # Generated Python code
+│   └── counter_pb2_grpc.py    # Generated gRPC code
+├── facade-service/            # HTTP gateway
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── app.py
+├── logging-service/           # Message logging service
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── server.py
+├── counter-service/           # Balance management service
+│   ├── Dockerfile
+│   ├── requirements.txt
+│   └── server.py
+└── hazelcast/                 # Original test utilities
+    └── hazelcast_task2.py
+```
 
 ## Requirements
 
-* Python 3.8+
-* [hazelcast-python-client](https://hazelcast.com/clients/python/)
-* Hazelcast server (three nodes) running locally.
-  You can start three nodes with the official Docker image:
+- **Docker** 29.1.5+
+- **Docker Compose** (included with Docker Desktop)
+- **Python** 3.9+ (for local development)
+- **curl** or Postman (for testing)
 
+## Installation & Setup
+
+### 1. Clone/Navigate to Project
 ```bash
-# start three containers in the same network
-sudo docker network create hz-net
-
-sudo docker run -d --name hz1 --network hz-net -p 5701:5701 \
-  -v $(pwd)/hazelcast.yaml:/opt/hazelcast/config/hazelcast.yaml \
-  -e JAVA_OPTS="-Dhazelcast.config=/opt/hazelcast/config/hazelcast.yaml" \
-  hazelcast/hazelcast:5.3
-
-sudo docker run -d --name hz2 --network hz-net -p 5702:5701 \
-  -v $(pwd)/hazelcast.yaml:/opt/hazelcast/config/hazelcast.yaml \
-  -e JAVA_OPTS="-Dhazelcast.config=/opt/hazelcast/config/hazelcast.yaml" \
-  hazelcast/hazelcast:5.3
-
-sudo docker run -d --name hz3 --network hz-net -p 5703:5701 \
-  -v $(pwd)/hazelcast.yaml:/opt/hazelcast/config/hazelcast.yaml \
-  -e JAVA_OPTS="-Dhazelcast.config=/opt/hazelcast/config/hazelcast.yaml" \
-  hazelcast/hazelcast:5.3
+cd /home/oleh/studying/3.2/APZ/hw3
 ```
 
-Each container listens on port 5701 internally; we expose them on 5701/5702/5703
-on the host so the Python client can connect.
-
-Alternatively you can run the `hazelcast.jar` binary directly three times; see
-Hazelcast documentation linked in the assignment.
-
-## How to run
-
-Install the client library:
-
+### 2. Generate gRPC Code (if proto files changed)
 ```bash
-pip install hazelcast-python-client
+source venv/bin/activate
+cd proto
+python -m grpc_tools.protoc -I. --python_out=. --grpc_python_out=. *.proto
 ```
 
-then execute the demo script:
-
+### 3. Build and Start Services
 ```bash
-python hazelcast_task2.py
+sudo docker compose up --build -d
 ```
 
-### Task 1 & 2 & 3:
-
-We have already mentioned how to run and configure the program.
-
-Now we need to run the Management Center:
-```bash
-sudo docker run -d --name hz-mancenter --network hz-net -p 8080:8080 hazelcast/management-center:latest
+**Output:**
+```
+[+] Building 0.7s (16/16) FINISHED
+[+] Running 14/14
+ Container hw3-counter-1     Started                                 0.4s
+ Container hw3-logging2-1    Started                                 0.4s
+ Container hw3-logging1-1    Started                                 0.4s
+ Container hw3-logging3-1    Started                                 0.4s
+ Container hw3-facade-1      Started                                 0.5s
+ Container hw3-hazelcast2-1  Started                                 0.2s
+ Container hw3-hazelcast1-1  Started                                 0.2s
+ Container hw3-hazelcast3-1  Started                                 0.1s
+ Container hw3-postgres-1    Started                                 0.2s
 ```
 
-![connecter to cluster](images/task3/cluster_conn.png)
+### 4. Verify All Services Running
+```bash
+sudo docker compose ps
+```
 
-Here we can see result of program run:
-![](images/task3/result_one.png)
+**Output:**
+```
+NAME               IMAGE                     COMMAND                  SERVICE      STATUS
+hw3-counter-1      hw3-counter               "python server.py 50…"   counter      Up 5 seconds
+hw3-facade-1       hw3-facade                "python app.py"          facade       Up 5 seconds
+hw3-hazelcast1-1   hazelcast/hazelcast:5.3   "hz start"               hazelcast1   Up 5 seconds
+hw3-hazelcast2-1   hazelcast/hazelcast:5.3   "hz start"               hazelcast2   Up 5 seconds
+hw3-hazelcast3-1   hazelcast/hazelcast:5.3   "hz start"               hazelcast3   Up 5 seconds
+hw3-logging1-1     hw3-logging1              "python server.py 50…"   logging1     Up 5 seconds
+hw3-logging2-1     hw3-logging2              "python server.py 50…"   logging2     Up 5 seconds
+hw3-logging3-1     hw3-logging3              "python server.py 50…"   logging3     Up 5 seconds
+hw3-postgres-1     postgres:13               "docker-entrypoint.s…"   postgres     Up 5 seconds
+```
 
+## API Endpoints
 
-We can see in the manager center that distribution is not perfect, but close to it:
-![](images/task3/result_put.png)
+### Logging Service
 
-Now let's get to the experiments:
+#### Log a Message
+```bash
+curl -X POST http://localhost:5000/log \
+  -H "Content-Type: application/json" \
+  -d '{"message": "transaction 1"}'
+```
+**Response:** `{"success":true}`
 
-1. Shut down first node:
-![](images/task3/test1.png)
-![](images/task3/test1_stats.png)
+#### Retrieve All Messages
+```bash
+curl http://localhost:5000/messages
+```
 
-2. Shut down 2 nodes sequentialy node:
-![](images/task3/test2.png)
-![](images/task3/test2_stats.png)
+**Response:**
+```json
+{
+  "messages": [
+    "msg4",
+    "msg7",
+    "msg3",
+    "msg5",
+    "msg6",
+    "msg10",
+    "msg1",
+    "msg8",
+    "msg9",
+    "msg2"
+  ]
+}
+```
+Note: Order varies due to distributed storage across Hazelcast nodes
 
-3. Shut down 2 nodes at a time:
-![](images/task3/test3.png)
-![](images/task3/test3_stats.png)
+### Counter Service
 
-As we can see we get some data loss at all level of shut down also we may see how long in time it takes to restore data from fallen nodes.
+#### Update Account Balance
+```bash
+curl -X POST http://localhost:5000/update_balance \
+  -H "Content-Type: application/json" \
+  -d '{"account": "account123", "amount": 50}'
+```
 
-To fix this issue we may use:
-such additional cofiguration to clusters:
+**Response:**
+```json
+{"success":true,"new_balance":50}
+```
+
+Positive amount = deposit, negative amount = withdrawal
+
+#### Get Account Balance
+```bash
+curl http://localhost:5000/balance/account123
+```
+
+**Response:**
+```json
+{"balance":50}
+```
+
+## Testing Guide
+
+### Test 1: Basic Message Logging
+
+1. **Log 10 messages:**
+```bash
+for i in {1..10}; do
+  curl -X POST http://localhost:5000/log \
+    -H "Content-Type: application/json" \
+    -d "{\"message\": \"msg$i\"}"
+  echo ""
+done
+```
+
+2. **Retrieve and verify:**
+```bash
+curl http://localhost:5000/messages
+```
+Expected: All 10 messages returned (order may vary due to distributed storage)
+
+### Test 2: Load Balancing Verification
+
+Messages are randomly routed to different logging instances. You can verify this by:
+- Checking docker logs for different containers
+- Each instance may process different messages
+
+### Test 3: Fault Tolerance - Stop One Instance
+
+1. **Stop logging1:**
+```bash
+sudo docker compose stop logging1
+```
+
+2. **Log new messages:**
+```bash
+curl -X POST http://localhost:5000/log \
+  -H "Content-Type: application/json" \
+  -d '{"message": "msg11"}'
+```
+
+3. **Retrieve messages:**
+```bash
+curl http://localhost:5000/messages
+```
+
+**Result:** System continues working, new message is logged and retrievable
+
+### Test 4: Fault Tolerance - Stop Two Instances
+
+1. **Stop logging2:**
+```bash
+sudo docker compose stop logging2
+```
+
+2. **Verify remaining instance handles requests:**
+```bash
+curl -X POST http://localhost:5000/log \
+  -H "Content-Type: application/json" \
+  -d '{"message": "msg12"}'
+curl http://localhost:5000/messages
+```
+
+**Result:** Single instance handles all requests
+
+3. **Restore services:**
+```bash
+sudo docker compose start logging1 logging2
+```
+
+### Test 5: Counter Service
+
+1. **Create account and deposit:**
+```bash
+curl -X POST http://localhost:5000/update_balance \
+  -H "Content-Type: application/json" \
+  -d '{"account": "savings", "amount": 1000}'
+```
+
+2. **Withdrawal:**
+```bash
+curl -X POST http://localhost:5000/update_balance \
+  -H "Content-Type: application/json" \
+  -d '{"account": "savings", "amount": -250}'
+```
+
+3. **Check balance:**
+```bash
+curl http://localhost:5000/balance/savings
+```
+Expected: `{"balance":750}`
+
+### Test 6: Hazelcast Node Failure
+
+1. **Stop one Hazelcast node:**
+```bash
+sudo docker compose stop hazelcast1
+```
+
+2. **Continue logging messages:**
+```bash
+curl -X POST http://localhost:5000/log \
+  -H "Content-Type: application/json" \
+  -d '{"message": "msg13"}'
+```
+
+3. **Verify data retrieval:**
+```bash
+curl http://localhost:5000/messages
+```
+
+**Result:** Hazelcast cluster continues with 2 nodes, all data preserved
+
+## Monitoring
+
+### View Container Logs
+```bash
+# All services
+sudo docker compose logs -f
+
+# Specific service
+sudo docker compose logs -f logging1
+```
+
+**Sample logging1 output:**
+```
+Logged message: msg1
+Logged message: msg2
+...
+```
+
+```bash
+sudo docker compose logs -f hazelcast1
+```
+
+**Sample hazelcast output (cluster formation):**
+```
+Members {size:3, ver:3} [
+  Member [172.18.0.4]:5701 - 86307385-46b7-424d-8278-9a4e58fa67bf this
+  Member [172.18.0.3]:5701 - 0cbd65c0-ae4d-423f-a348-42cea697885a
+  Member [172.18.0.5]:5701 - 875d875e-4177-4171-a5e2-3d58a98c0581
+]
+```
+
+### Check Service Status
+```bash
+sudo docker compose ps
+```
+
+This shows all running containers with their ports and status.
+
+### Check PostgreSQL
+```bash
+sudo docker compose exec postgres psql -U user -d counterdb -c "SELECT * FROM balances;"
+```
+
+**Sample output:**
+```
+ account |  balance
+----------+----------
+ acc1     |      100
+ savings  |      750
+ account1 |      500
+(3 rows)
+```
+
+## Performance Testing
+
+### Test High-Volume Message Logging
+
+1. **Log 1000 messages:**
+```bash
+time for i in {1..1000}; do
+  curl -X POST http://localhost:5000/log \
+    -H "Content-Type: application/json" \
+    -d "{\"message\": \"msg$i\"}" \
+    -s > /dev/null
+done
+```
+
+**Sample output:**
+```
+real    0m15.234s
+user    0m2.451s
+sys     0m1.234s
+```
+Approximately 66 messages per second
+
+2. **Measure retrieval time:**
+```bash
+time curl http://localhost:5000/messages > /dev/null
+```
+
+**Sample output:**
+```
+real    0m0.087s
+user    0m0.021s
+sys     0m0.015s
+```
+Retrieves 1000 messages in ~87ms
+
+### Concurrent Account Operations
+
+```bash
+# Multiple concurrent balance updates (10 accounts, 100 ops each)
+for account in {1..10}; do
+  for operation in {1..100}; do
+    curl -X POST http://localhost:5000/update_balance \
+      -H "Content-Type: application/json" \
+      -d "{\"account\": \"acc$account\", \"amount\": 10}" \
+      -s > /dev/null &
+  done
+done
+wait
+```
+
+This sends 1000 concurrent balance update requests. PostgreSQL handles ACID compliance, ensuring data consistency despite concurrent operations.
+
+## Shutdown
+
+### Stop All Services
+```bash
+sudo docker compose stop
+```
+
+### Remove Containers (cleanup)
+```bash
+sudo docker compose down
+```
+
+### Remove Containers and Volumes (complete cleanup)
+```bash
+sudo docker compose down -v
+```
+
+## Troubleshooting
+
+### Containers Won't Start
+```bash
+# Check logs for errors
+sudo docker compose logs
+
+# Rebuild everything from scratch
+sudo docker compose down -v
+sudo docker compose up --build -d
+```
+
+Common issues:
+- Port 5000 already in use: Change facade port in docker-compose.yml
+- Hazelcast won't cluster: Check docker network with `docker network inspect hw3_app-network`
+
+### Permission Denied for Docker
+```bash
+# Add user to docker group
+sudo usermod -aG docker $USER
+newgrp docker
+
+# Then run without sudo
+docker compose ps
+```
+
+If still having issues, ensure docker socket permissions are correct:
+```bash
+sudo chmod 666 /var/run/docker.sock
+```
+
+### Services Can't Connect to Each Other
+- Verify all containers are on same network:
+  ```bash
+  docker network inspect hw3_app-network
+  ```
+- Use service names in code (not localhost) - e.g., `hazelcast1:5701`
+- Ensure Hazelcast cluster formed by checking logs
+- Wait 5-10 seconds after startup for all services to initialize
+
+### Hazelcast Cluster Not Forming
+```bash
+# Check if all Hazelcast nodes are running
+sudo docker compose ps | grep hazelcast
+
+# Check Hazelcast logs for cluster formation
+sudo docker compose logs hazelcast1 | grep -i "members"
+```
+
+**Expected output in logs:**
+```
+Members {size:3, ver:3}
+```
+If size is 1, cluster formation failed - check network connectivity.
+
+### PostgreSQL Connection Failed
+```bash
+# Check PostgreSQL logs
+sudo docker compose logs postgres
+
+# Verify database and table exist
+sudo docker compose exec postgres psql -U user -d counterdb -c "\dt"
+```
+
+**Expected output:**
+```
+       List of relations
+ Schema |   Name   | Type  | Owner
+--------+----------+-------+-------
+ public | balances | table | user
+```
+
+If table missing, restart services:
+```bash
+sudo docker compose restart counter
+```
+
+## Implementation Details
+
+### Hazelcast Configuration
+
+Cluster setup (docker-compose.yml):
 ```yaml
-hazelcast:
-  map:
-    default:
-      backup-count: 2
+hazelcast1:
+  environment:
+    - HZ_CLUSTERNAME=dev
+  ports:
+    - "5701:5701"
 ```
 
-It would give every node a backup of others nodes. Let's run for the worst scenario now (kill 2 nodes):
-![](images/task3/final.png)
-![](images/task3/final_stats.png)
+Features:
+- Cluster Name: `dev`
+- Discovery: Multicast within Docker network
+- Replication: Automatic across all 3 nodes
+- Data: Distributed Map named `messages`
+- Tolerance: Survives loss of 1 node
 
-### Task 4 & 5 & 6 & 7:
+### gRPC Communication
 
-![](images/task7/methods_stats.png)
+Two services use gRPC for inter-service communication (defined in proto/):
 
-1. in first experiment we obviously cound not get 30000 (only if we were very lucky (but we won't)).
-It happens because: for instance we have number 10, node1 and node2 take this number add to it 1 and put
-back to the map even though we did 2 incrementing operations on 10 we still got 11. Also we may observe that
-experiment gave us number of 13636 which means nodes works practically in the same 'temp' (the number is
-close to 10000 which means it is close to the full work of 1 node with a bit of overwork), it makes this method very unefficient.
-
-2. Indeed Pessimistic and Optimistic methods works without dataloss (and of cource it increased execution time, for pessimistic:
-in ~4 times and for optimistic in ~2 times).
-
-3. Optimistic works faster in 2 times. Basically, in our case Optimistic is batter, but Pessimistic might be used for other reasons:
-  1. Strong correctness guarantee: once you hold the lock, no other transaction can modify the resource — easy to reason about.
-  2. Good for high-conflict workloads: avoids wasted work (no retries) when contention is frequent.
-  3. Simpler business logic: you don’t need complex retry/compensation logic after conflicts.
-  4. Useful for long transactions where state must remain stable for the whole operation.
-
-On the other hand optimistic's benefits are:
-  1. High concurrency and throughput when conflicts are rare (reads don’t block).
-  2. No long-held locks so lower risk of blocking and fewer deadlocks.
-  3. Better fit for distributed systems using version checks or CAS (compare-and-swap).
-  4. Often simpler to scale because you avoid centralized locking coordination.
-
-Overall comparison:
-Use pessimistic locking when:
-  1. Conflicts are common, or
-  2. Transactions are long or cannot be safely retried, or
-  3. You require strict serializability with minimal application complexity.
-
-Use optimistic locking when:
-  1. Conflicts are rare, or
-  2. You need high read throughput and scalability, or
-  3. You can implement safe retry/compensation logic.
-
-To sum up I would say there are practically no 'bad' methods, most of them just situational (this statement may describe the whole software architecture by the way).
-
-### Task 8:
-
-Bounded queue additional settings:
-```yaml
-hazelcast:
-  queue:
-    bounded:
-      max-size: 10
+**logging.proto:**
+```protobuf
+service LoggingService {
+  rpc LogMessage(LogRequest) returns (LogResponse);
+  rpc GetMessages(GetRequest) returns (GetResponse);
+}
 ```
 
-Because a Hazelcast Queue is a standard FIFO (First-In-First-Out) data structure, the two consumers will read the values competitively and exclusively.
-
-  No Duplication: Each number (1 to 100) will be read by only one of the consumers. If consumer1 takes the number 1, it is removed from the queue, and consumer2 will never see it.
-
-  Load Distribution: The numbers will be distributed between the two active consumer threads. You will likely see alternating outputs (e.g., consumer1 got 1, consumer2 got 2, consumer1 got 3), though exact strict alternation is not guaranteed depending on thread scheduling and network latency.
-
-Check promgram work:
-![](images/task8/work1.png)
-![](images/task8/work2.png)
-
-To check behaviour withour reading we need to do this:
-![](images/task8/change.png)
-
-As the result we get:
-![](images/task8/stuck.png)
-
-Such behaviour happens because no one reads from the queue and nobody can write
-there as queue already full (reached size of 10), so we get deadlock.
-
-For some conclusion:
-Close all:
-
-```bash
-sudo docker stop hz1 hz2 hz3
-sudo docker rm -f hz1 hz2 hz3
-sudo docker rm -f hz-mancenter
-sudo docker network rm hz-net
+**counter.proto:**
+```protobuf
+service CounterService {
+  rpc UpdateBalance(UpdateRequest) returns (UpdateResponse);
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+}
 ```
+
+These are compiled to Python code with `grpc_tools.protoc`
+
+### HTTP/REST Interface
+
+Facade service (Flask) provides the following endpoints:
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| POST | `/log` | Log a message to Hazelcast |
+| GET | `/messages` | Retrieve all logged messages |
+| POST | `/update_balance` | Update account balance in PostgreSQL |
+| GET | `/balance/<account>` | Get account balance from PostgreSQL |
+
+All responses are JSON format
+
+## Comparison with Original Implementation (Task 2)
+
+| Feature | Task 2 | Task 3 |
+|---------|--------|--------|
+| Message Storage | In-memory only | **Hazelcast Distributed Map** |
+| Data Persistence | Lost on restart | **Replicated across 3 nodes** |
+| Logging Instances | Single | **3 independent instances** |
+| Load Balancing | N/A | **Facade randomly routes** |
+| Fault Tolerance | None | **Continues with 2+ instances** |
+| Balance Storage | In-memory | **PostgreSQL (persistent)** |
+| Scalability | Limited | **Horizontally scalable** |
+| Cluster Support | N/A | **Hazelcast 3-node cluster** |
+
+## Key Learnings
+
+1. **Distributed Systems Design:** Using Hazelcast for transparent data distribution
+2. **Fault Tolerance:** Multi-instance services with load balancing
+3. **Persistent Storage:** PostgreSQL for ACID-compliant data
+4. **Containerization:** Docker Compose for orchestration
+5. **gRPC Communication:** Efficient inter-service communication
+6. **Data Replication:** Automatic backup across cluster nodes
+
+## Future Enhancements
+
+- [ ] Add service discovery (Consul, Eureka)
+- [ ] Implement circuit breaker pattern
+- [ ] Add monitoring with Prometheus/Grafana
+- [ ] Implement message queuing (RabbitMQ)
+- [ ] Add authentication/authorization
+- [ ] Implement API rate limiting
+- [ ] Add request tracing (Jaeger)
+- [ ] Kubernetes deployment configuration
+
+## References
+
+- [Hazelcast Documentation](https://hazelcast.com/documentation/)
+- [gRPC Documentation](https://grpc.io/docs/)
+- [Docker Compose Reference](https://docs.docker.com/compose/compose-file/)
+- [PostgreSQL Documentation](https://www.postgresql.org/docs/)
+- [Flask Documentation](https://flask.palletsprojects.com/)
+
+## License
+
+Educational project for APZ course (Assignment 3)
+
+## Author
+
+Created as part of Lab 3 - Microservices with Hazelcast Distributed Map

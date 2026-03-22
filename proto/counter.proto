@@ -1,0 +1,26 @@
+syntax = "proto3";
+
+package counter;
+
+service CounterService {
+  rpc UpdateBalance(UpdateRequest) returns (UpdateResponse);
+  rpc GetBalance(GetBalanceRequest) returns (GetBalanceResponse);
+}
+
+message UpdateRequest {
+  string account = 1;
+  int32 amount = 2;  // positive for deposit, negative for withdraw
+}
+
+message UpdateResponse {
+  bool success = 1;
+  int32 new_balance = 2;
+}
+
+message GetBalanceRequest {
+  string account = 1;
+}
+
+message GetBalanceResponse {
+  int32 balance = 1;
+}

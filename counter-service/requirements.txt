@@ -1,0 +1,3 @@
+grpcio
+protobuf
+psycopg2-binary
